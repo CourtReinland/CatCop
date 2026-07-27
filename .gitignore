@@ -1,0 +1,10 @@
+# Export dumps from the previous tool that generated the first prototype.
+# Kept locally for reference; not part of the game.
+/assets/
+/assets-by-turn/
+/local_state/
+
+.DS_Store
+**/.DS_Store
+node_modules/
+*.log

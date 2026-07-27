@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no, maximum-scale=1" />
+  <meta name="theme-color" content="#07040f" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="description" content="CatCop — Lifted Wing: Desire Protocol. A mobile light-gun otome shooter." />
+  <title>CatCop · Lifted Wing</title>
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body>
+  <div id="shell">
+    <canvas id="canvas"></canvas>
+
+    <!-- Loading ------------------------------------------------------------ -->
+    <section id="boot" class="overlay show">
+      <div class="boot-inner">
+        <p class="eyebrow">LUNA POLICE · LIFTED WING DIVISION</p>
+        <h1 class="logo">CatCop</h1>
+        <div class="loader"><i id="boot-bar"></i></div>
+        <p id="boot-status" class="muted">Waking the night shift…</p>
+      </div>
+    </section>
+
+    <!-- Menu --------------------------------------------------------------- -->
+    <section id="menu" class="overlay">
+      <div class="panel">
+        <p class="eyebrow">NEW YORK · 2035</p>
+        <h1 class="logo">CatCop</h1>
+        <p class="subtitle">Lifted Wing: Desire Protocol</p>
+        <p class="copy">Suki dances in a police costume. Tonight the modelling agency next door
+          turned beautiful, ravenous and loose in her club — and the only officer left standing
+          thinks the costume is real.</p>
+
+        <button id="play-button" class="primary">Begin Chapter One</button>
+
+        <div class="options">
+          <button id="motion-button" class="secondary">Use phone motion aiming</button>
+          <p id="motion-status" class="muted" role="status" aria-live="polite" data-state="idle">Touch aiming · drag to aim, hold to fire</p>
+        </div>
+
+        <details class="how">
+          <summary>How to play</summary>
+          <ul>
+            <li><strong>Aim:</strong> drag anywhere. The sight sits above your thumb so you can see the target.</li>
+            <li><strong>Fire:</strong> hold. The sight turns <span class="hot">red and beeps</span> when it locks on.</li>
+            <li><strong>Do not shoot</strong> anything ringed in green — three civilians ends the mission.</li>
+            <li><strong>Shoot supply cases</strong> to take health, ammo and new weapons.</li>
+            <li>Clear an area and the party moves up through the club automatically.</li>
+          </ul>
+        </details>
+        <p class="credit">Characters, world and story original. Rigged body, props and sample audio CC0 (Kenney).</p>
+      </div>
+    </section>
+
+    <!-- Visual novel ------------------------------------------------------- -->
+    <section id="cinematic" class="overlay cinematic">
+      <div id="vn-bg" class="vn-bg"></div>
+      <div class="vn-vignette"></div>
+      <img id="vn-portrait" class="vn-portrait" alt="" />
+      <div class="vn-box">
+        <p id="vn-chapter" class="eyebrow">PROLOGUE</p>
+        <h2 id="vn-speaker">Narrator</h2>
+        <p id="vn-text"></p>
+        <div id="vn-choices" class="vn-choices hidden"></div>
+        <button id="vn-next" class="primary">Continue</button>
+      </div>
+      <button id="vn-skip" class="ghost skip">Skip</button>
+    </section>
+
+    <!-- Result ------------------------------------------------------------- -->
+    <section id="result" class="overlay">
+      <div class="panel">
+        <p class="eyebrow">LIFTED WING · FIELD REPORT</p>
+        <h2 id="result-title">Mission Complete</h2>
+        <p id="result-summary" class="copy"></p>
+        <div id="result-stats" class="stats"></div>
+        <button id="result-next" class="primary">Next Chapter</button>
+        <button id="result-retry" class="secondary">Replay Chapter</button>
+        <button id="result-menu" class="ghost">Main Menu</button>
+      </div>
+    </section>
+
+    <!-- HUD ---------------------------------------------------------------- -->
+    <header id="hud" class="hud">
+      <div class="hud-top">
+        <div class="vitals">
+          <div class="vital">
+            <span class="who">SUKI</span>
+            <div class="bar"><i id="suki-bar"></i></div>
+            <span id="suki-num" class="num">100</span>
+          </div>
+          <div class="vital eno">
+            <span class="who">ENO</span>
+            <div class="bar"><i id="eno-bar"></i></div>
+            <span id="eno-num" class="num">100</span>
+          </div>
+        </div>
+        <div class="score-block">
+          <strong id="score">0</strong>
+          <span id="combo" class="combo">x1</span>
+        </div>
+      </div>
+      <div class="hud-strip">
+        <span id="stand-label" class="stand">Coat Check</span>
+        <span class="friendly">CIV <b id="friendly-count">0/3</b></span>
+      </div>
+      <div class="progress"><i id="progress-fill"></i></div>
+    </header>
+
+    <button id="weapon-card" class="weapon-card" type="button">
+      <span id="weapon-name">Luna Sidearm</span>
+      <strong id="ammo-count">48</strong>
+    </button>
+
+    <div id="marker-layer" class="marker-layer" aria-hidden="true"></div>
+    <div id="reticle" class="reticle" aria-hidden="true">
+      <b class="ring"></b><b class="dot"></b>
+      <i class="tick t"></i><i class="tick r"></i><i class="tick b"></i><i class="tick l"></i>
+    </div>
+    <div id="damage-flash" class="damage-flash" aria-hidden="true"></div>
+    <div id="banner" class="banner"><strong id="banner-title"></strong><span id="banner-sub"></span></div>
+    <div id="comms" class="comms"><strong id="comms-speaker"></strong><span id="comms-text"></span></div>
+    <div id="toast" class="toast"></div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
