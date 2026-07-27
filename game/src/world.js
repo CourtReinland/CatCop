@@ -871,7 +871,7 @@ export class World {
     this.accentPool.forEach((light, i) => {
       const entry = hostiles[i];
       if (!entry) { light.intensity = 0; return; }
-      const { a } = entry;
+      const { a, d } = entry;
       this.tmpA.set(a.position.x - this.cameraRig.position.x, 0, a.position.z - this.cameraRig.position.z)
         .normalize().multiplyScalar(0.9);
       light.color.setHex(a.tint);
@@ -880,7 +880,10 @@ export class World {
         a.position.y + a.height * 0.85,
         a.position.z + this.tmpA.z
       );
-      light.intensity = (3.4 + Math.sin(this.time * 5 + i) * 0.8) * (a.revealProgress ?? 1);
+      // Fades in with distance: up close the aim beam already lights them, and
+      // a full-strength accent turns the suit into a flat red mannequin.
+      const range = THREE.MathUtils.clamp((d - 2.2) / 5, 0.18, 1);
+      light.intensity = (3.4 + Math.sin(this.time * 5 + i) * 0.8) * range * (a.revealProgress ?? 1);
     });
   }
 
