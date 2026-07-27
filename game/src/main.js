@@ -109,11 +109,19 @@ const STORY = {
 let storyNodes = [];
 let storyIndex = 0;
 let storyDone = () => {};
+// A second tap on "Deploy" must not fire the completion callback again — that
+// re-entered the chapter flow and silently restarted Chapter 1.
+let storyActive = false;
 
 function playStory(nodes, onDone) {
   storyNodes = nodes;
   storyIndex = 0;
-  storyDone = onDone;
+  storyActive = true;
+  storyDone = () => {
+    if (!storyActive) return;
+    storyActive = false;
+    onDone();
+  };
   ui.setScreen('cinematic');
   showNode();
 }
@@ -148,6 +156,7 @@ function showNode() {
 }
 
 function advanceStory() {
+  if (!storyActive) return;
   if (storyNodes[storyIndex]?.final) return storyDone();
   storyIndex += 1;
   if (storyIndex >= storyNodes.length) return storyDone();
