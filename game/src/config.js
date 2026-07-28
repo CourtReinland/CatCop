@@ -20,7 +20,9 @@ export const ASSETS = {
   infectedPortrait: './assets/art/infected_portrait.png',
   clubOpening: './assets/art/club_opening.jpg',
 
-  // Rigged character (Kenney CC0 characterMedium) + clips
+  // Re-proportioned character built by tools/build_infected.py (mesh + skeleton
+  // + Run/Idle in one file). The Kenney FBX set below is the fallback.
+  character: './assets/characters/infected.glb',
   rig: './assets/characters/infected.fbx',
   clipRun: './assets/characters/run.fbx',
   clipIdle: './assets/characters/idle.fbx',

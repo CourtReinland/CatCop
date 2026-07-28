@@ -7,6 +7,7 @@
 
 import * as THREE from 'three';
 import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import { ASSETS, CLIP_NAMES, ACTOR, PALETTE, PHYSICS } from './config.js';
 
@@ -62,32 +63,52 @@ export class ActorFactory {
   }
 
   async load() {
-    const loader = new FBXLoader();
-    const loadFbx = (url) => new Promise((resolve) => loader.load(url, resolve, undefined, () => resolve(null)));
+    // Preferred: the re-proportioned character built by tools/build_infected.py —
+    // one GLB carrying mesh, skeleton and both clips, with separate skin/suit/
+    // shirt material slots. Falls back to the original Kenney FBX set.
+    const glb = await new Promise((resolve) => {
+      new GLTFLoader().load(ASSETS.character, resolve, undefined, () => resolve(null));
+    });
 
-    const [rig, runFile, idleFile] = await Promise.all([
-      loadFbx(ASSETS.rig), loadFbx(ASSETS.clipRun), loadFbx(ASSETS.clipIdle)
-    ]);
-
-    if (rig) {
-      // FBX ships in centimetres and T-pose; normalise to a 1m-tall template so
-      // per-type heights are a plain multiply.
-      const box = new THREE.Box3().setFromObject(rig);
+    if (glb?.scene) {
+      const root = glb.scene;
+      // Must update world matrices first: Box3.setFromObject on a freshly
+      // parsed glTF otherwise misses the armature node's scale and under-reports
+      // the height, which scaled every actor to double size.
+      root.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(root);
       const height = box.getSize(new THREE.Vector3()).y || 1;
-      rig.scale.setScalar(1 / height);
-      rig.rotation.y = Math.PI; // face +Z, i.e. toward the player
-      this.template = rig;
-      this.report.rig = 'loaded';
+      root.scale.setScalar(1 / height);
+      this.template = root;
+      this.source = 'glb';
+      this.report.rig = `glb ${(height).toFixed(2)}u`;
+      this.clips.run = glb.animations.find((c) => /run/i.test(c.name)) || null;
+      this.clips.idle = glb.animations.find((c) => /idle/i.test(c.name)) || null;
     } else {
-      this.report.rig = 'failed · procedural bodies';
+      const loader = new FBXLoader();
+      const loadFbx = (url) => new Promise((resolve) => loader.load(url, resolve, undefined, () => resolve(null)));
+      const [rig, runFile, idleFile] = await Promise.all([
+        loadFbx(ASSETS.rig), loadFbx(ASSETS.clipRun), loadFbx(ASSETS.clipIdle)
+      ]);
+      if (rig) {
+        const box = new THREE.Box3().setFromObject(rig);
+        const height = box.getSize(new THREE.Vector3()).y || 1;
+        rig.scale.setScalar(1 / height);
+        rig.rotation.y = Math.PI; // face +Z, i.e. toward the player
+        this.template = rig;
+        this.source = 'fbx';
+        this.report.rig = 'fbx fallback';
+      } else {
+        this.report.rig = 'failed · procedural bodies';
+      }
+      // The run FBX also contains a 0.04s "Targeting Pose"; picking animations[0]
+      // blindly is what left the old build with no walk cycle at all.
+      this.clips.run = pickClip(runFile, CLIP_NAMES.run);
+      this.clips.idle = pickClip(idleFile, CLIP_NAMES.idle);
     }
 
-    // The run FBX also contains a 0.04s "Targeting Pose"; picking animations[0]
-    // blindly is what left the old build with no walk cycle at all.
-    this.clips.run = pickClip(runFile, CLIP_NAMES.run);
-    this.clips.idle = pickClip(idleFile, CLIP_NAMES.idle);
-    this.report.run = this.clips.run ? `loaded "${this.clips.run.name}" ${this.clips.run.duration.toFixed(2)}s` : 'failed';
-    this.report.idle = this.clips.idle ? `loaded "${this.clips.idle.name}" ${this.clips.idle.duration.toFixed(2)}s` : 'failed';
+    this.report.run = this.clips.run ? `"${this.clips.run.name}" ${this.clips.run.duration.toFixed(2)}s` : 'failed';
+    this.report.idle = this.clips.idle ? `"${this.clips.idle.name}" ${this.clips.idle.duration.toFixed(2)}s` : 'failed';
     this.ready = true;
     return this.report;
   }
@@ -158,24 +179,41 @@ export class Actor {
       rig.scale.multiplyScalar(this.height);
       const suit = pick(SUIT_COLORS, this.seed);
       const skin = pick(SKIN_COLORS, this.seed * 7 % 1);
-      const material = new THREE.MeshStandardMaterial({
-        color: this.hostile ? suit : 0xa9c4d6,
-        roughness: this.hostile ? 0.5 : 0.75,
-        metalness: this.hostile ? 0.2 : 0.02,
-        emissive: new THREE.Color(this.tint).multiplyScalar(0.03)
-      });
-      applyRim(material, this.tint, RIM_POWER[this.type] ?? 3.2,
-        this.hostile ? RIM_STRENGTH.hostile : RIM_STRENGTH.civilian);
-      material.userData.baseEmissive = material.emissive.clone();
-      this.material = material;
+      const power = RIM_POWER[this.type] ?? 3.2;
+      const strength = this.hostile ? RIM_STRENGTH.hostile : RIM_STRENGTH.civilian;
+      this.materials = [];
+      // Rim is per-slot: a thin limb is nearly all grazing angle, so a uniform
+      // fresnel turns the trousers into solid neon. The suit carries the dark
+      // mass and only wants an edge; skin and shirt carry the light.
+      const slotFor = (name) => {
+        const n = (name || '').toLowerCase();
+        if (!this.hostile) {
+          if (n.includes('skin')) return { color: 0xdcc3b6, rough: 0.62, metal: 0.0, rim: 0.55 };
+          if (n.includes('shirt')) return { color: 0xeef2f7, rough: 0.7, metal: 0.0, rim: 0.5 };
+          return { color: 0x6f93a8, rough: 0.75, metal: 0.02, rim: 0.9 };
+        }
+        if (n.includes('skin')) return { color: skin, rough: 0.52, metal: 0.0, rim: 0.55 };
+        if (n.includes('shirt')) return { color: 0x9a94a2, rough: 0.68, metal: 0.0, rim: 0.45 };
+        return { color: suit, rough: 0.44, metal: 0.18, rim: 1.0 };
+      };
       rig.traverse((child) => {
         if (!child.isMesh && !child.isSkinnedMesh) return;
-        child.material = material;
+        const spec = slotFor(child.material?.name);
+        const m = new THREE.MeshStandardMaterial({
+          color: spec.color, roughness: spec.rough, metalness: spec.metal,
+          emissive: new THREE.Color(this.tint).multiplyScalar(0.03)
+        });
+        applyRim(m, this.tint, power, strength * (spec.rim ?? 1));
+        m.userData.rimScale = spec.rim ?? 1;
+        child.material = m;
+        this.materials.push(m);
         child.castShadow = true;
         child.receiveShadow = false;
         child.frustumCulled = false;
         child.userData.hitProxy = true;
       });
+      // `material` stays the primary handle for flash/fade; the rest follow it.
+      this.material = this.materials[0];
       this.rig = rig;
       this.body.add(rig);
       this.skinTone = skin;
@@ -451,11 +489,14 @@ export class Actor {
     if (this.spine) this.spine.rotation.x = -this.flinch * 0.5;
 
     // Hit flash + a pulse so a lurking body still reads as alive.
-    const shader = this.material?.userData?.shader;
-    if (shader?.uniforms?.uRimStrength) {
-      const base = this.hostile ? RIM_STRENGTH.hostile : RIM_STRENGTH.civilian;
-      const pulse = this.hostile ? Math.sin(this.age * 3.4 + this.seed * 6) * 0.18 : 0;
-      shader.uniforms.uRimStrength.value = base + pulse + this.flinch * 6;
+    const base = this.hostile ? RIM_STRENGTH.hostile : RIM_STRENGTH.civilian;
+    const pulse = this.hostile ? Math.sin(this.age * 3.4 + this.seed * 6) * 0.18 : 0;
+    const rim = base + pulse + this.flinch * 6;
+    for (const m of (this.materials || [this.material])) {
+      const shader = m?.userData?.shader;
+      if (shader?.uniforms?.uRimStrength) {
+        shader.uniforms.uRimStrength.value = rim * (m.userData.rimScale ?? 1);
+      }
     }
     if (this.eyeMaterial) {
       const glow = 1 + this.flinch * 3 + (this.hostile ? Math.sin(this.age * 5 + this.seed * 4) * 0.2 : 0);
@@ -469,9 +510,10 @@ export class Actor {
       this.deathTimer -= dt;
       const fade = THREE.MathUtils.clamp(this.deathTimer / PHYSICS.deathFade, 0, 1);
       this.group.scale.setScalar(0.6 + fade * 0.4);
-      if (this.material) {
-        this.material.transparent = true;
-        this.material.opacity = fade;
+      for (const m of (this.materials || [this.material])) {
+        if (!m) continue;
+        m.transparent = true;
+        m.opacity = fade;
       }
       if (this.deathTimer <= 0) this.removeMe = true;
     }
@@ -484,7 +526,7 @@ export class Actor {
         if (child.material && child.material !== this.material) child.material.dispose?.();
       }
     });
-    this.material?.dispose?.();
+    (this.materials || [this.material]).forEach((m) => m?.dispose?.());
   }
 }
 
